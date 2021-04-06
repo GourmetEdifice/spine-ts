@@ -218,12 +218,12 @@ module spine.webgl {
 
 		translate (x: number, y: number, z: number): Matrix4 {
 			let v = this.values;
-			let t = this.temp;
-			t[M00] = v[M00];t[M01] = v[M01];t[M02] = v[M02];t[M03] = v[M03];t[M10] = v[M10];t[M11] = v[M11];t[M12] = v[M12];t[M13] = v[M13];t[M20] = v[M20];t[M21] = v[M21];t[M22] = v[M22];t[M23] = v[M23];t[M30] = v[M30];t[M31] = v[M31];t[M32] = v[M32];t[M33] = v[M33];
-			v[12]=t[0]*x+t[4]*y+t[8]*z+t[12];
-			v[13]=t[1]*x+t[5]*y+t[9]*z+t[13];
-			v[14]=t[2]*x+t[6]*y+t[10]*z+t[14];
-			v[15]=t[3]*x+t[7]*y+t[11]*z+t[15];
+			
+			v[M03] = v[M00] * x + v[M01] * y + v[M02] * z + v[M03];
+			v[M13] = v[M10] * x + v[M11] * y + v[M12] * z + v[M13];
+			v[M23] = v[M20] * x + v[M21] * y + v[M22] * z + v[M23];
+			v[M33] = v[M30] * x + v[M31] * y + v[M32] * z + v[M33];
+
 			return this;
 		}
 
