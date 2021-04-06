@@ -28,6 +28,20 @@
  *****************************************************************************/
 
 module spine {
+	class FieldPreference {
+		x: boolean = true;
+		y: boolean = true;
+		strings: boolean = true;
+		skinRequired: boolean = true;
+		enumInBytes: boolean = false;
+		stringRef: boolean = true;
+		bendDirectionInBool: boolean = false;
+		softness: boolean = true;
+		ikMore: boolean = true;
+		skinBones: boolean = true;
+		eventsAudioPath: boolean = true;
+	}
+
 	/** Loads skeleton data in the Spine binary format.
 	 *
 	 * See [Spine binary format](http://esotericsoftware.com/spine-binary-format) and
@@ -81,10 +95,30 @@ module spine {
 
 			skeletonData.hash = input.readString();
 			skeletonData.version = input.readString();
+
+			let pref = new FieldPreference;
+
 			if ("3.8.75" == skeletonData.version)
 					throw new Error("Unsupported skeleton data, please export with a newer version of Spine.");
-			skeletonData.x = input.readFloat();
-			skeletonData.y = input.readFloat();
+			else if (skeletonData.version.indexOf('3.6') == 0) {
+				pref = {
+					...pref,
+					x: false,
+					y: false,
+					strings: false,
+					skinRequired: false,
+					enumInBytes: true,
+					stringRef: false,
+					bendDirectionInBool: true,
+					softness: false,
+					ikMore: false,
+					skinBones: false,
+					eventsAudioPath: false
+				};
+			}
+
+			if (pref.x) skeletonData.x = input.readFloat();
+			if (pref.y) skeletonData.y = input.readFloat();
 			skeletonData.width = input.readFloat();
 			skeletonData.height = input.readFloat();
 
@@ -97,10 +131,13 @@ module spine {
 			}
 
 			let n = 0;
+
 			// Strings.
+			if (pref.strings) {
 			n = input.readInt(true)
 			for (let i = 0; i < n; i++)
 				input.strings.push(input.readString());
+			}
 
 			// Bones.
 			n = input.readInt(true)
@@ -116,8 +153,13 @@ module spine {
 				data.shearX = input.readFloat();
 				data.shearY = input.readFloat();
 				data.length = input.readFloat() * scale;
-				data.transformMode = SkeletonBinary.TransformModeValues[input.readInt(true)];
-				data.skinRequired = input.readBoolean();
+
+				if (pref.enumInBytes)
+					data.transformMode = SkeletonBinary.TransformModeValues[input.readByte()];
+				else
+					data.transformMode = SkeletonBinary.TransformModeValues[input.readInt(true)];
+
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				if (nonessential) Color.rgba8888ToColor(data.color, input.readInt32());
 				skeletonData.bones.push(data);
 			}
@@ -133,8 +175,12 @@ module spine {
 				let darkColor = input.readInt32();
 				if (darkColor != -1) Color.rgb888ToColor(data.darkColor = new Color(), darkColor);
 
-				data.attachmentName = input.readStringRef();
-				data.blendMode = SkeletonBinary.BlendModeValues[input.readInt(true)];
+				data.attachmentName = pref.stringRef ? input.readStringRef() : input.readString();
+
+				if (pref.enumInBytes)
+					data.blendMode = SkeletonBinary.BlendModeValues[input.readByte()];
+				else
+					data.blendMode = SkeletonBinary.BlendModeValues[input.readInt(true)];
 				skeletonData.slots.push(data);
 			}
 
@@ -143,17 +189,26 @@ module spine {
 			for (let i = 0, nn; i < n; i++) {
 				let data = new IkConstraintData(input.readString());
 				data.order = input.readInt(true);
-				data.skinRequired = input.readBoolean();
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				nn = input.readInt(true);
 				for (let ii = 0; ii < nn; ii++)
 					data.bones.push(skeletonData.bones[input.readInt(true)]);
 				data.target = skeletonData.bones[input.readInt(true)];
 				data.mix = input.readFloat();
-				data.softness = input.readFloat() * scale;
+
+				if (pref.softness) data.softness = input.readFloat() * scale;
+
+				if (pref.bendDirectionInBool)
+					data.bendDirection = input.readBoolean() ? 1 : -1;
+				else
 				data.bendDirection = input.readByte();
+
+				if (pref.ikMore) {
 				data.compress = input.readBoolean();
 				data.stretch = input.readBoolean();
 				data.uniform = input.readBoolean();
+				}
+
 				skeletonData.ikConstraints.push(data);
 			}
 
@@ -162,7 +217,7 @@ module spine {
 			for (let i = 0, nn; i < n; i++) {
 				let data = new TransformConstraintData(input.readString());
 				data.order = input.readInt(true);
-				data.skinRequired = input.readBoolean();
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				nn = input.readInt(true);
 				for (let ii = 0; ii < nn; ii++)
 					data.bones.push(skeletonData.bones[input.readInt(true)]);
@@ -187,14 +242,23 @@ module spine {
 			for (let i = 0, nn; i < n; i++) {
 				let data = new PathConstraintData(input.readString());
 				data.order = input.readInt(true);
-				data.skinRequired = input.readBoolean();
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				nn = input.readInt(true);
 				for (let ii = 0; ii < nn; ii++)
 					data.bones.push(skeletonData.bones[input.readInt(true)]);
 				data.target = skeletonData.slots[input.readInt(true)];
-				data.positionMode = SkeletonBinary.PositionModeValues[input.readInt(true)];
-				data.spacingMode = SkeletonBinary.SpacingModeValues[input.readInt(true)];
-				data.rotateMode = SkeletonBinary.RotateModeValues[input.readInt(true)];
+
+				if (pref.enumInBytes) {
+					data.positionMode = SkeletonBinary.PositionModeValues[input.readByte()];
+					data.spacingMode = SkeletonBinary.SpacingModeValues[input.readByte()];
+					data.rotateMode = SkeletonBinary.RotateModeValues[input.readByte()];
+				}
+				else {
+					data.positionMode = SkeletonBinary.PositionModeValues[input.readInt(true)];
+					data.spacingMode = SkeletonBinary.SpacingModeValues[input.readInt(true)];
+					data.rotateMode = SkeletonBinary.RotateModeValues[input.readInt(true)];
+				}
+
 				data.offsetRotation = input.readFloat();
 				data.position = input.readFloat();
 				if (data.positionMode == PositionMode.Fixed) data.position *= scale;
@@ -206,7 +270,7 @@ module spine {
 			}
 
 			// Default skin.
-			let defaultSkin = this.readSkin(input, skeletonData, true, nonessential);
+			let defaultSkin = this.readSkin(input, skeletonData, true, nonessential, pref);
 			if (defaultSkin != null) {
 				skeletonData.defaultSkin = defaultSkin;
 				skeletonData.skins.push(defaultSkin);
@@ -217,7 +281,7 @@ module spine {
 				let i = skeletonData.skins.length;
 				Utils.setArraySize(skeletonData.skins, n = i + input.readInt(true));
 				for (; i < n; i++)
-					skeletonData.skins[i] = this.readSkin(input, skeletonData, false, nonessential);
+					skeletonData.skins[i] = this.readSkin(input, skeletonData, false, nonessential, pref);
 			}
 
 			// Linked meshes.
@@ -237,14 +301,18 @@ module spine {
 			// Events.
 			n = input.readInt(true);
 			for (let i = 0; i < n; i++) {
-				let data = new EventData(input.readStringRef());
+				let data = new EventData(pref.stringRef ? input.readStringRef() : input.readString());
 				data.intValue = input.readInt(false);
 				data.floatValue = input.readFloat();
 				data.stringValue = input.readString();
+				
+				if (pref.eventsAudioPath)
+				{
 				data.audioPath = input.readString();
 				if (data.audioPath != null) {
 					data.volume = input.readFloat();
 					data.balance = input.readFloat();
+				}
 				}
 				skeletonData.events.push(data);
 			}
@@ -252,11 +320,11 @@ module spine {
 			// Animations.
 			n = input.readInt(true);
 			for (let i = 0; i < n; i++)
-				skeletonData.animations.push(this.readAnimation(input, input.readString(), skeletonData));
+				skeletonData.animations.push(this.readAnimation(input, input.readString(), skeletonData, pref));
 			return skeletonData;
 		}
 
-		private readSkin (input: BinaryInput, skeletonData: SkeletonData, defaultSkin: boolean, nonessential: boolean): Skin {
+		private readSkin (input: BinaryInput, skeletonData: SkeletonData, defaultSkin: boolean, nonessential: boolean, pref: FieldPreference): Skin {
 			let skin = null;
 			let slotCount = 0;
 
@@ -265,7 +333,9 @@ module spine {
 				if (slotCount == 0) return null;
 				skin = new Skin("default");
 			} else {
-				skin = new Skin(input.readStringRef());
+				skin = new Skin(pref.stringRef ? input.readStringRef() : input.readString());
+
+				if (pref.skinBones) {
 				skin.bones.length = input.readInt(true);
 				for (let i = 0, n = skin.bones.length; i < n; i++)
 					skin.bones[i] = skeletonData.bones[input.readInt(true)];
@@ -276,6 +346,7 @@ module spine {
 					skin.constraints.push(skeletonData.transformConstraints[input.readInt(true)]);
 				for (let i = 0, n = input.readInt(true); i < n; i++)
 					skin.constraints.push(skeletonData.pathConstraints[input.readInt(true)]);
+				}
 
 				slotCount = input.readInt(true);
 			}
@@ -283,25 +354,25 @@ module spine {
 			for (let i = 0; i < slotCount; i++) {
 				let slotIndex = input.readInt(true);
 				for (let ii = 0, nn = input.readInt(true); ii < nn; ii++) {
-					let name = input.readStringRef();
-					let attachment = this.readAttachment(input, skeletonData, skin, slotIndex, name, nonessential);
+					let name = pref.stringRef ? input.readStringRef() : input.readString();
+					let attachment = this.readAttachment(input, skeletonData, skin, slotIndex, name, nonessential, pref);
 					if (attachment != null) skin.setAttachment(slotIndex, name, attachment);
 				}
 			}
 			return skin;
 		}
 
-		private readAttachment(input: BinaryInput, skeletonData: SkeletonData, skin: Skin, slotIndex: number, attachmentName: string, nonessential: boolean): Attachment {
+		private readAttachment(input: BinaryInput, skeletonData: SkeletonData, skin: Skin, slotIndex: number, attachmentName: string, nonessential: boolean, pref: FieldPreference): Attachment {
 			let scale = this.scale;
 
-			let name = input.readStringRef();
+			let name = pref.stringRef ? input.readStringRef() : input.readString();
 			if (name == null) name = attachmentName;
 
 			let typeIndex = input.readByte();
 			let type = SkeletonBinary.AttachmentTypeValues[typeIndex];
 			switch (type) {
 			case AttachmentType.Region: {
-				let path = input.readStringRef();
+				let path = pref.stringRef ? input.readStringRef() : input.readString();
 				let rotation = input.readFloat();
 				let x = input.readFloat();
 				let y = input.readFloat();
@@ -340,7 +411,7 @@ module spine {
 				return box;
 			}
 			case AttachmentType.Mesh: {
-				let path = input.readStringRef();
+				let path = pref.stringRef ? input.readStringRef() : input.readString();
 				let color = input.readInt32();
 				let vertexCount = input.readInt(true);
 				let uvs = this.readFloatArray(input, vertexCount << 1, 1);
@@ -375,10 +446,10 @@ module spine {
 				return mesh;
 			}
 			case AttachmentType.LinkedMesh: {
-				let path = input.readStringRef();
+				let path = pref.stringRef ? input.readStringRef() : input.readString();
 				let color = input.readInt32();
-				let skinName = input.readStringRef();
-				let parent = input.readStringRef();
+				let skinName = pref.stringRef ? input.readStringRef() : input.readString();
+				let parent = pref.stringRef ? input.readStringRef() : input.readString();
 				let inheritDeform = input.readBoolean();
 				let width = 0, height = 0;
 				if (nonessential) {
@@ -497,7 +568,7 @@ module spine {
 			return array;
 		}
 
-		private readAnimation (input: BinaryInput, name: string, skeletonData: SkeletonData): Animation {
+		private readAnimation (input: BinaryInput, name: string, skeletonData: SkeletonData, pref: FieldPreference): Animation {
 			let timelines = new Array<Timeline>();
 			let scale = this.scale;
 			let duration = 0;
@@ -515,7 +586,8 @@ module spine {
 						let timeline = new AttachmentTimeline(frameCount);
 						timeline.slotIndex = slotIndex;
 						for (let frameIndex = 0; frameIndex < frameCount; frameIndex++)
-							timeline.setFrame(frameIndex, input.readFloat(), input.readStringRef());
+							timeline.setFrame(frameIndex, input.readFloat(), 
+							pref.stringRef ? input.readStringRef() : input.readString());
 						timelines.push(timeline);
 						duration = Math.max(duration, timeline.frames[frameCount - 1]);
 						break;
@@ -676,7 +748,8 @@ module spine {
 				for (let ii = 0, nn = input.readInt(true); ii < nn; ii++) {
 					let slotIndex = input.readInt(true);
 					for (let iii = 0, nnn = input.readInt(true); iii < nnn; iii++) {
-						let attachment = skin.getAttachment(slotIndex, input.readStringRef()) as VertexAttachment;
+						let attachment = skin.getAttachment(slotIndex, 
+							pref.stringRef ? input.readStringRef() : input.readString()) as VertexAttachment;
 						let weighted = attachment.bones != null;
 						let vertices = attachment.vertices;
 						let deformLength = weighted ? vertices.length / 3 * 2 : vertices.length;
@@ -761,7 +834,9 @@ module spine {
 					let event = new Event(time, eventData);
 					event.intValue = input.readInt(false);
 					event.floatValue = input.readFloat();
-					event.stringValue = input.readBoolean() ? input.readString() : eventData.stringValue;
+					event.stringValue = input.readBoolean()
+					    ? (pref.stringRef ? input.readStringRef() : input.readString())
+						: eventData.stringValue;
 					if (event.data.audioPath != null) {
 						event.volume = input.readFloat();
 						event.balance = input.readFloat();
