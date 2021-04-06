@@ -48,6 +48,7 @@ module spine.webgl {
 	export class Matrix4 {
 		temp: Float32Array = new Float32Array(16);
 		values: Float32Array = new Float32Array(16);
+		stacks: Float32Array[] = [];
 
 		private static xAxis: Vector3 = null;
 		private static yAxis: Vector3 = null;
@@ -174,6 +175,35 @@ module spine.webgl {
 			return this;
 		}
 
+		push (): Matrix4 {
+			this.stacks.push(this.values.slice());
+			return this;
+		}
+
+		pop (): Matrix4 {
+			if(this.stacks.length>0){
+				let top_matrix = this.stacks.pop();
+
+				this.values[M00] = top_matrix[M00];
+				this.values[M01] = top_matrix[M01];
+				this.values[M02] = top_matrix[M02];
+				this.values[M03] = top_matrix[M03];
+				this.values[M10] = top_matrix[M10];
+				this.values[M11] = top_matrix[M11];
+				this.values[M12] = top_matrix[M12];
+				this.values[M13] = top_matrix[M13];
+				this.values[M20] = top_matrix[M20];
+				this.values[M21] = top_matrix[M21];
+				this.values[M22] = top_matrix[M22];
+				this.values[M23] = top_matrix[M23];
+				this.values[M30] = top_matrix[M30];
+				this.values[M31] = top_matrix[M31];
+				this.values[M32] = top_matrix[M32];
+				this.values[M33] = top_matrix[M33];
+			}
+			return this;
+		}
+
 		determinant (): number {
 			let v = this.values;
 			return v[M30] * v[M21] * v[M12] * v[M03] - v[M20] * v[M31] * v[M12] * v[M03] - v[M30] * v[M11] * v[M22] * v[M03]
@@ -188,9 +218,196 @@ module spine.webgl {
 
 		translate (x: number, y: number, z: number): Matrix4 {
 			let v = this.values;
-			v[M03] += x;
-			v[M13] += y;
-			v[M23] += z;
+			let t = this.temp;
+			t[M00] = v[M00];t[M01] = v[M01];t[M02] = v[M02];t[M03] = v[M03];t[M10] = v[M10];t[M11] = v[M11];t[M12] = v[M12];t[M13] = v[M13];t[M20] = v[M20];t[M21] = v[M21];t[M22] = v[M22];t[M23] = v[M23];t[M30] = v[M30];t[M31] = v[M31];t[M32] = v[M32];t[M33] = v[M33];
+			v[12]=t[0]*x+t[4]*y+t[8]*z+t[12];
+			v[13]=t[1]*x+t[5]*y+t[9]*z+t[13];
+			v[14]=t[2]*x+t[6]*y+t[10]*z+t[14];
+			v[15]=t[3]*x+t[7]*y+t[11]*z+t[15];
+			return this;
+		}
+
+		rotate (angle: number, x: number, y: number, z: number): Matrix4 {
+			let v = this.values;
+			let t = this.temp;
+
+			t[M00] = this.values[M00];
+			t[M01] = this.values[M01];
+			t[M02] = this.values[M02];
+			t[M03] = this.values[M03];
+			t[M10] = this.values[M10];
+			t[M11] = this.values[M11];
+			t[M12] = this.values[M12];
+			t[M13] = this.values[M13];
+			t[M20] = this.values[M20];
+			t[M21] = this.values[M21];
+			t[M22] = this.values[M22];
+			t[M23] = this.values[M23];
+			t[M30] = this.values[M30];
+			t[M31] = this.values[M31];
+			t[M32] = this.values[M32];
+			t[M33] = this.values[M33];
+
+			let len = Math.sqrt(x * x + y * y + z * z);
+
+			if (len == 0)
+				throw new RangeError('rotation axis can not be zero.');
+
+			if (len != 1) {
+				len = 1 / len;
+				x *= len; y *= len; z *= len;
+			}
+
+			let sinA = Math.sin(angle);
+			let cosA = Math.cos(angle);
+			let vrsA = 1 - cosA;
+
+			let t0 = x * x * vrsA + cosA;
+			let u0 = y * x * vrsA + z * sinA;
+			let v0 = z * x * vrsA - y * sinA;
+			let w0 = x * y * vrsA - z * sinA;
+
+			let x0 = y * y * vrsA + cosA;
+			let y0 = z * y * vrsA + x * sinA;
+			let z0 = x * z * vrsA + y * sinA;
+
+			let x1 = y * z * vrsA - x * sinA;
+			let y1 = z * z * vrsA + cosA;
+
+			v[M00] = t[M00] * t0 + t[M01] * u0 + t[M02] * v0;
+			v[M10] = t[M10] * t0 + t[M11] * u0 + t[M12] * v0;
+			v[M20] = t[M20] * t0 + t[M21] * u0 + t[M22] * v0;
+			v[M30] = t[M30] * t0 + t[M31] * u0 + t[M32] * v0;
+
+			v[M01] = t[M00] * w0 + t[M01] * x0 + t[M02] * y0;
+			v[M11] = t[M10] * w0 + t[M11] * x0 + t[M12] * y0;
+			v[M21] = t[M20] * w0 + t[M21] * x0 + t[M22] * y0;
+			v[M31] = t[M30] * w0 + t[M31] * x0 + t[M32] * y0;
+
+			v[M02] = t[M00] * z0 + t[M01] * x1 + t[M02] * y1;
+			v[M12] = t[M10] * z0 + t[M11] * x1 + t[M12] * y1;
+			v[M22] = t[M20] * z0 + t[M21] * x1 + t[M22] * y1;
+			v[M32] = t[M30] * z0 + t[M31] * x1 + t[M32] * y1;
+
+			return this;
+		}
+
+		scale (x: number, y: number, z: number = 1, w: number = 1): Matrix4 {
+			let v = this.values;
+
+			v[M00] *= x; v[M10] *= x; v[M20] *= x; v[M30] *= x;
+			v[M01] *= y; v[M11] *= y; v[M21] *= y; v[M31] *= y;
+			v[M02] *= z; v[M12] *= z; v[M22] *= z; v[M32] *= z;
+			v[M03] *= w; v[M13] *= w; v[M23] *= w; v[M33] *= w;
+
+			return this;
+		}
+
+		rotateX (angle: number): Matrix4 {
+			let v = this.values;
+			let t = this.temp;
+
+			t[M00] = this.values[M00];
+			t[M01] = this.values[M01];
+			t[M02] = this.values[M02];
+			t[M03] = this.values[M03];
+			t[M10] = this.values[M10];
+			t[M11] = this.values[M11];
+			t[M12] = this.values[M12];
+			t[M13] = this.values[M13];
+			t[M20] = this.values[M20];
+			t[M21] = this.values[M21];
+			t[M22] = this.values[M22];
+			t[M23] = this.values[M23];
+			t[M30] = this.values[M30];
+			t[M31] = this.values[M31];
+			t[M32] = this.values[M32];
+			t[M33] = this.values[M33];
+
+			let sinA = Math.sin(angle);
+			let cosA = Math.cos(angle);
+
+			v[M01] = t[M01] *  cosA + t[M02] * sinA;
+			v[M11] = t[M11] *  cosA + t[M12] * sinA;
+			v[M21] = t[M21] *  cosA + t[M22] * sinA;
+			v[M31] = t[M31] *  cosA + t[M32] * sinA;
+
+			v[M02] = t[M01] * -sinA + t[M02] * cosA;
+			v[M12] = t[M11] * -sinA + t[M12] * cosA;
+			v[M22] = t[M21] * -sinA + t[M22] * cosA;
+			v[M32] = t[M31] * -sinA + t[M32] * cosA;
+
+			return this;
+		}
+
+		rotateY (angle: number): Matrix4 {
+			let v = this.values;
+			let t = this.temp;
+
+			t[M00] = this.values[M00];
+			t[M01] = this.values[M01];
+			t[M02] = this.values[M02];
+			t[M03] = this.values[M03];
+			t[M10] = this.values[M10];
+			t[M11] = this.values[M11];
+			t[M12] = this.values[M12];
+			t[M13] = this.values[M13];
+			t[M20] = this.values[M20];
+			t[M21] = this.values[M21];
+			t[M22] = this.values[M22];
+			t[M23] = this.values[M23];
+			t[M30] = this.values[M30];
+			t[M31] = this.values[M31];
+			t[M32] = this.values[M32];
+			t[M33] = this.values[M33];
+
+			let sinA = Math.sin(angle);
+			let cosA = Math.cos(angle);
+
+			v[M00] = t[M00] * cosA + t[M02] * -sinA;
+			v[M10] = t[M10] * cosA + t[M12] * -sinA;
+			v[M20] = t[M20] * cosA + t[M22] * -sinA;
+			v[M30] = t[M30] * cosA + t[M32] * -sinA;
+			v[M02] = t[M00] * sinA + t[M02] * cosA;
+			v[M12] = t[M10] * sinA + t[M12] * cosA;
+			v[M22] = t[M20] * sinA + t[M22] * cosA;
+			v[M32] = t[M30] * sinA + t[M32] * cosA;
+
+			return this;
+		}
+
+		rotateZ (angle: number): Matrix4 {
+			let v = this.values;
+			let t = this.temp;
+
+			t[M00] = this.values[M00];
+			t[M01] = this.values[M01];
+			t[M02] = this.values[M02];
+			t[M03] = this.values[M03];
+			t[M10] = this.values[M10];
+			t[M11] = this.values[M11];
+			t[M12] = this.values[M12];
+			t[M13] = this.values[M13];
+			t[M20] = this.values[M20];
+			t[M21] = this.values[M21];
+			t[M22] = this.values[M22];
+			t[M23] = this.values[M23];
+			t[M30] = this.values[M30];
+			t[M31] = this.values[M31];
+			t[M32] = this.values[M32];
+			t[M33] = this.values[M33];
+
+			let sinA = Math.sin(angle), cosA = Math.cos(angle);
+
+			v[M00] = t[M00] *  cosA + t[M01] * sinA;
+			v[M10] = t[M10] *  cosA + t[M11] * sinA;
+			v[M20] = t[M20] *  cosA + t[M21] * sinA;
+			v[M30] = t[M30] *  cosA + t[M31] * sinA;
+			v[M01] = t[M00] * -sinA + t[M01] * cosA;
+			v[M11] = t[M10] * -sinA + t[M11] * cosA;
+			v[M21] = t[M20] * -sinA + t[M21] * cosA;
+			v[M31] = t[M30] * -sinA + t[M31] * cosA;
+
 			return this;
 		}
 
