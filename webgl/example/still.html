@@ -1,0 +1,566 @@
+<!DOCTYPE HTML>
+<html>
+<meta charset="UTF-8" name="viewport" content="width=device-width,user-scalable=no">
+<title>spine test</title>
+<!--<script src="spine-webgl.min.js"></script>-->
+<script src="../../build/spine-webgl.js"></script>
+<script src="https://code.jquery.com/jquery-3.1.0.min.js"></script>
+<style>
+	* {
+		margin: 0;
+		padding: 0;
+	}
+
+	body,
+	html {
+		height: 100%;
+		background: #444;
+		-webkit-text-size-adjust: 100%;
+		font-family: Arial, Meiryo
+	}
+
+	select,
+	option {
+		font-family: Arial, Meiryo
+	}
+
+	/*body {height:101vh}*/
+
+	canvas {
+		position: absolute;
+		width: 100%;
+		height: 100%;
+	}
+
+	.tool {
+		color: #fff;
+		position: fixed;
+		top: 0;
+		width: 100%;
+		z-index: 1;
+		cursor: default
+	}
+
+	.tool>span {
+		white-space: nowrap
+	}
+
+	.img-progress {
+		position: fixed;
+		left: 0;
+		top: -1px;
+		height: 1px;
+		opacity: 1;
+		background: #40b5ff;
+		border: solid #22648d;
+		border-width: 2px 0;
+		transition: width .3s, opacity 1s cubic-bezier(.76, 0, .86, .06)
+	}
+
+	.img-progress:after {
+		content: "";
+		position: absolute;
+		right: 0;
+		top: 0;
+		height: 1px;
+		width: 1px;
+		box-shadow: -2px -2px 3px 5px #40b5ff;
+	}
+
+	@media screen and (orientation: portrait) {
+
+		html,
+		body {
+			overflow-x: hidden;
+			width: 100vw
+		}
+	}
+</style>
+
+<body>
+	<center>
+		<div class="tool">
+			<span>
+				<span>角色:</span>
+				<select id="skeletonList">
+					<option disabled>加载中…</option>
+				</select>
+				<input id="loadSkeleton" type="button" value="加载">
+			</span>
+			<span>
+				<span> 动画:</span>
+				<select id="animationList"></select>
+			</span>
+			<span>
+				<span> 表情:</span>
+				<select id="skinList"></select>
+			</span>
+			<label>
+				<span>显示节点:</span>
+				<input type="checkbox" id="debug">
+			</label>
+			<label>
+				<span>BG:</span>
+				<input type="text" id="bgColor" value="606060" autocomplete="off">
+			</label>
+			<div id="loading-text">加载中</div>
+		</div>
+	</center>
+	<canvas id="canvas" width="0" height="0"></canvas>
+	<div style="color:#FFF;position:fixed;bottom:0;left:0;right:0;text-align:center">Fan-made animation player.
+		Resources copyright &copy;
+		<a href="https://priconne-redive.jp/" target="_blank" style="color:#FFF">Cygames</a> 2018
+	</div>
+	<script>
+
+		var lastFrameTime = Date.now() / 1000;
+		var canvas;
+		var shader;
+		var batcher;
+		var gl;
+		var mvp = new spine.webgl.Matrix4();
+		var skeletonRenderer;
+		var debugRenderer;
+		var shapes;
+		window.skeleton = {};
+		var activeSkeleton = "";
+		var classMap;
+		var loadingText = document.getElementById('loading-text');
+		var pendingAnimation = '';
+		var progressBar;
+		var animationQueue = [];
+		var skeletonList = document.getElementById('skeletonList');
+		var pendingFace = '';
+		var bgColor = [.3, .3, .3, 1];
+
+		function _(e, t, n) { var r = null; if ("text" === e) return document.createTextNode(t); r = document.createElement(e); for (var l in t) if ("style" === l) for (var a in t.style) r.style[a] = t.style[a]; else if ("className" === l) r.className = t[l]; else if ("event" === l) for (var a in t[l]) r.addEventListener(a, t[l][a]); else r.setAttribute(l, t[l]); if (n) for (var s = 0; s < n.length; s++)null != n[s] && r.appendChild(n[s]); return r }
+
+		function loadData(url, loadType, progress) {
+			return new Promise(function (res, rej) {
+				var xhr = new XMLHttpRequest;
+				xhr.open('GET', url, true);
+				if (loadType) xhr.responseType = loadType;
+				if (progress) xhr.onprogress = progress;
+				xhr.onload = function () {
+					if (xhr.response != null) {
+						res(xhr.response);
+					} else {
+						rej();
+					}
+				}
+				xhr.onerror = function () {
+					rej();
+				}
+				xhr.send();
+			});
+		}
+
+		function init() {
+			canvas = document.getElementById("canvas");
+			var config = { alpha: false };
+			gl = canvas.getContext("webgl", config) || canvas.getContext("experimental-webgl", config);
+			if (!gl) {
+				alert('WebGL is unavailable.');
+				return;
+			}
+
+			// Create a simple shader, mesh, model-view-projection matrix and SkeletonRenderer.
+			shader = spine.webgl.Shader.newTwoColoredTextured(gl);
+			batcher = new spine.webgl.PolygonBatcher(gl);
+			mvp.ortho2d(0, 0, canvas.width - 1, canvas.height - 1);
+			skeletonRenderer = new spine.webgl.SkeletonRenderer(gl);
+			debugRenderer = new spine.webgl.SkeletonDebugRenderer(gl);
+			debugRenderer.drawRegionAttachments = true;
+			debugRenderer.drawBoundingBoxes = true;
+			debugRenderer.drawMeshHull = true;
+			debugRenderer.drawMeshTriangles = true;
+			debugRenderer.drawPaths = true;
+			debugShader = spine.webgl.Shader.newColored(gl);
+			shapes = new spine.webgl.ShapeRenderer(gl);
+
+		// 	loadData('index.json', 'json')
+		// 		.then(function (json) {
+		// 			stillList = json;
+		// 			return loadData('still_name.json', 'json');
+		// 		})
+		// 		.then(function (json) {
+		// 			var getEntry = function (o, i) {
+		// 				i += '';
+		// 				while (i.length < 6) i = '0' + i;
+		// 				return o[i];
+		// 			}
+		// 			skeletonList.firstElementChild.remove();
+		// 			stillList.forEach(function (i) {
+		// 				var name = i;
+		// 				var id = i | 0;
+		// 				var idBase = id;
+		// 				idBase -= idBase % 10;
+		// 				if (getEntry(json, idBase + 1)) {
+		// 					name = getEntry(json, idBase + 1) + '_' + id % 10;
+		// 				} else {
+		// 					idBase -= idBase % 100;
+		// 					if (getEntry(json, idBase + 11)) {
+		// 						name = getEntry(json, idBase + 11) + '_' + id % 100;
+		// 					}
+		// 				}
+		// 				skeletonList.appendChild(_('option', { value: i }, [_('text', name)]));
+		// 			});
+		// 			loadingText.textContent = '';
+
+		// 			window.addEventListener('hashchange', function () {
+		// 				var props = {};
+		// 				location.hash.substr(1).split('&').forEach(function (i) {
+		// 					var i = i.split('=');
+		// 					var name = i.shift();
+		// 					props[name] = i.join('=');
+		// 				});
+		// 				var skinList = $('#skinList')[0];
+		// 				if (props.chara && props.face) {
+		// 					if (props.chara != skeletonList.value) {
+		// 						skeletonList.value = props.chara;
+		// 						pendingFace = props.face;
+		// 						document.getElementById('loadSkeleton').click();
+		// 					} else if (props.face != skinList.value) {
+		// 						skinList.value = props.face;
+		// 						skinList.dispatchEvent(new Event('change'));
+		// 					}
+		// 					window.focus();
+		// 				}
+		// 			});
+		// 			window.dispatchEvent(new Event('hashchange'));
+		// 		})
+		// 		.catch(function () {
+		// 			alert('加载角色信息失败');
+		// 		})
+			document.getElementById('loadSkeleton').addEventListener('click', function () {
+				if (!skeletonList.value) return;
+				if (activeSkeleton == skeletonList.value) return;
+				load(skeletonList.value);
+			})
+		}
+
+		var loading = false;
+		var loadingSkeleton;
+		var generalBattleSkeletonData;
+		var currentTexture;
+		var currentClassAnimData = {
+			type: 0,
+			data: {}
+		};
+		var currentCharaAnimData = {
+			id: 0,
+			data: {}
+		};
+		var currentClass = '1';
+
+        function loadKyaru(unit_id) {
+			if (loading) return;
+			loading = true;
+			if (activeSkeleton == unit_id) return;
+			if (progressBar) progressBar.remove();
+			progressBar = document.body.appendChild(_('div', { className: 'img-progress', style: { width: '5px', opacity: 1 } }));
+			progressBar.style.width = '0';
+			loadingText.textContent = '加载动画 (0/3)';
+			var loadedResource = {
+				skel: '',
+				atlas: ''
+			};
+
+			loadData('assets/kyaru/' + unit_id + '.skel', 'arraybuffer')
+				.then(function (skel) {
+					loadedResource.skel = skel;
+					progressBar.style.width = '20%';
+					loadingText.textContent = '加载材质 (1/3)';
+					return loadData('assets/kyaru/' + unit_id + '.atlas');
+				})
+				.then(function (atlas) {
+					loadedResource.atlas = atlas;
+					progressBar.style.width = '40%';
+					loadingText.textContent = '加载材质图片 (2/3)';
+					return loadData('assets/kyaru/' + unit_id + '.png', 'blob', function (e) {
+						var perc = e.loaded / e.total * 60 + 40;
+						progressBar.style.width = perc + '%';
+					});
+				})
+				.then(function (blob) {
+					var img = new Image();
+					img.onload = function () {
+						progressBar.style.width = '100%'; progressBar.style.opacity = 0;
+						var created = !!window.skeleton.skeleton;
+						if (created) {
+							window.skeleton.state.clearTracks();
+							window.skeleton.state.clearListeners();
+							gl.deleteTexture(currentTexture.texture)
+						}
+
+						var imgTexture = new spine.webgl.GLTexture(gl, img);
+						URL.revokeObjectURL(img.src);
+						atlas = new spine.TextureAtlas(loadedResource.atlas, function (path) {
+							return imgTexture;
+						});
+						currentTexture = imgTexture;
+
+						atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+						var skeletonBinary = new spine.SkeletonBinary(atlasLoader);
+                        const bytes = new Uint8Array(loadedResource.skel);
+						var skeletonData = skeletonBinary.readSkeletonData(bytes);
+
+						var skeleton = new spine.Skeleton(skeletonData);
+						skeleton.setSkinByName('normal');
+						if (pendingFace) {
+							skeleton.setSkinByName(pendingFace);
+							pendingFace = '';
+						}
+						var bounds = calculateBounds(skeleton);
+
+						animationStateData = new spine.AnimationStateData(skeleton.data);
+						var animationState = new spine.AnimationState(animationStateData);
+						animationState.setAnimation(0, 'eye_idle', true);
+
+						window.skeleton = { skeleton: skeleton, state: animationState, bounds: bounds, premultipliedAlpha: true }
+						loading = false;
+						loadingText.textContent = '';
+						(window.updateUI || setupUI)();
+						if (!created) {
+							canvas.style.width = '99%';
+							requestAnimationFrame(render);
+							setTimeout(function () {
+								canvas.style.width = '';
+							}, 0)
+						}
+						activeSkeleton = unit_id;
+					}
+					img.src = URL.createObjectURL(blob);
+				})
+		}
+		
+
+		function load(unit_id) {
+			if (loading) return;
+			loading = true;
+			if (activeSkeleton == unit_id) return;
+			if (progressBar) progressBar.remove();
+			progressBar = document.body.appendChild(_('div', { className: 'img-progress', style: { width: '5px', opacity: 1 } }));
+			progressBar.style.width = '0';
+			loadingText.textContent = '加载动画 (0/3)';
+			var loadedResource = {
+				skel: '',
+				atlas: ''
+			};
+
+			loadData('unit/' + unit_id + '.skel', 'arraybuffer')
+				.then(function (skel) {
+					loadedResource.skel = skel;
+					progressBar.style.width = '20%';
+					loadingText.textContent = '加载材质 (1/3)';
+					return loadData('unit/' + unit_id + '.atlas');
+				})
+				.then(function (atlas) {
+					loadedResource.atlas = atlas;
+					progressBar.style.width = '40%';
+					loadingText.textContent = '加载材质图片 (2/3)';
+					return loadData('unit/' + unit_id + '.png', 'blob', function (e) {
+						var perc = e.loaded / e.total * 60 + 40;
+						progressBar.style.width = perc + '%';
+					});
+				})
+				.then(function (blob) {
+					var img = new Image();
+					img.onload = function () {
+						progressBar.style.width = '100%'; progressBar.style.opacity = 0;
+						var created = !!window.skeleton.skeleton;
+						if (created) {
+							window.skeleton.state.clearTracks();
+							window.skeleton.state.clearListeners();
+							gl.deleteTexture(currentTexture.texture)
+						}
+
+						var imgTexture = new spine.webgl.GLTexture(gl, img);
+						URL.revokeObjectURL(img.src);
+						atlas = new spine.TextureAtlas(loadedResource.atlas, function (path) {
+							return imgTexture;
+						});
+						currentTexture = imgTexture;
+
+						atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+						var skeletonBinary = new spine.SkeletonBinary(atlasLoader);
+						var skeletonData = skeletonBinary.readSkeletonData(loadedResource.skel);
+						var skeleton = new spine.Skeleton(skeletonData);
+						skeleton.setSkinByName('normal');
+						if (pendingFace) {
+							skeleton.setSkinByName(pendingFace);
+							pendingFace = '';
+						}
+						var bounds = calculateBounds(skeleton);
+
+						animationStateData = new spine.AnimationStateData(skeleton.data);
+						var animationState = new spine.AnimationState(animationStateData);
+						animationState.setAnimation(0, 'eye_idle', true);
+
+						window.skeleton = { skeleton: skeleton, state: animationState, bounds: bounds, premultipliedAlpha: true }
+						loading = false;
+						loadingText.textContent = '';
+						(window.updateUI || setupUI)();
+						if (!created) {
+							canvas.style.width = '99%';
+							requestAnimationFrame(render);
+							setTimeout(function () {
+								canvas.style.width = '';
+							}, 0)
+						}
+						activeSkeleton = unit_id;
+					}
+					img.src = URL.createObjectURL(blob);
+				})
+		}
+		function calculateBounds(skeleton) {
+			skeleton.setToSetupPose();
+			skeleton.updateWorldTransform();
+			var offset = new spine.Vector2();
+			var size = new spine.Vector2();
+			skeleton.getBounds(offset, size, []);
+			//offset.y = 0
+			return { offset: offset, size: size };
+		}
+
+		function setupUI() {
+			var skeletonList = $("#skeletonList");
+			var setupAnimationUI = function () {
+				var animationList = $("#animationList");
+				animationList.empty();
+				var skeleton = window.skeleton.skeleton;
+				var state = window.skeleton.state;
+				var activeAnimation = state.tracks[0].animation.name;
+				for (var i = 0; i < skeleton.data.animations.length; i++) {
+					var name = skeleton.data.animations[i].name;
+					var option = $("<option></option>");
+					option.attr("value", name).text(name);
+					if (name === activeAnimation) option.attr("selected", "selected");
+					animationList.append(option);
+				}
+			}
+			var setupSkinUI = function () {
+				var skinList = $("#skinList");
+				skinList.empty();
+				var skeleton = window.skeleton.skeleton;
+				var activeSkin = skeleton.skin == null ? "default" : skeleton.skin.name;
+				for (var i = 1; i < skeleton.data.skins.length; i++) {
+					var name = skeleton.data.skins[i].name;
+					var option = $("<option></option>");
+					option.attr("value", name).text(name);
+					if (name === activeSkin) option.attr("selected", "selected");
+					skinList.append(option);
+				}
+
+				skinList.change(function () {
+					var skeleton = window.skeleton.skeleton;
+					var skinName = $("#skinList option:selected").text();
+					skeleton.setSkinByName(skinName);
+					skeleton.setSlotsToSetupPose();
+				})
+			}
+
+			window.updateUI = function () {
+				setupAnimationUI();
+				setupSkinUI();
+			};
+			setupAnimationUI();
+			setupSkinUI();
+			$("#animationList").change(function () {
+				skeleton.state.setAnimation(0, $("#animationList")[0].value, true);
+			})
+			$('#bgColor')[0].addEventListener('input', function () {
+				var val = this.value.toUpperCase();
+				if (!/^[0-9A-F]{6}$/.test(val)) return;
+				val = parseInt(val, 16);
+				bgColor = [
+					(val >>> 16 & 0xFF) / 255,
+					(val >>> 8 & 0xFF) / 255,
+					(val & 0xFF) / 255
+				];
+			});
+		}
+
+		function render() {
+			var now = Date.now() / 1000;
+			var delta = now - lastFrameTime;
+			lastFrameTime = now;
+
+			// Update the MVP matrix to adjust for canvas size changes
+			resize();
+
+			gl.clearColor(bgColor[0], bgColor[1], bgColor[2], 1);
+			gl.clear(gl.COLOR_BUFFER_BIT);
+
+			// Apply the animation state based on the delta time.
+			var state = window.skeleton.state;
+			var skeleton = window.skeleton.skeleton;
+			var bounds = window.skeleton.bounds;
+			var premultipliedAlpha = window.skeleton.premultipliedAlpha;
+			state.update(delta);
+			state.apply(skeleton);
+			skeleton.updateWorldTransform();
+
+			// Bind the shader and set the texture and model-view-projection matrix.
+			shader.bind();
+			shader.setUniformi(spine.webgl.Shader.SAMPLER, 0);
+			shader.setUniform4x4f(spine.webgl.Shader.MVP_MATRIX, mvp.values);
+
+			// Start the batch and tell the SkeletonRenderer to render the active skeleton.
+			batcher.begin(shader);
+
+			skeletonRenderer.premultipliedAlpha = premultipliedAlpha;
+			skeletonRenderer.draw(batcher, skeleton);
+			batcher.end();
+
+			shader.unbind();
+
+			// draw debug information
+			var debug = $('#debug').is(':checked');
+			if (debug) {
+				debugShader.bind();
+				debugShader.setUniform4x4f(spine.webgl.Shader.MVP_MATRIX, mvp.values);
+				debugRenderer.premultipliedAlpha = premultipliedAlpha;
+				shapes.begin(debugShader);
+				debugRenderer.draw(shapes, skeleton);
+				shapes.end();
+				debugShader.unbind();
+			}
+
+			requestAnimationFrame(render);
+		}
+
+		function resize() {
+			var useBig = screen.width * devicePixelRatio > 1280;
+			//var w = useBig ? 1920 : 1280;
+			//var h = useBig ? 1080 : 720;
+			var w = canvas.clientWidth * devicePixelRatio;
+			var h = canvas.clientHeight * devicePixelRatio;
+			var bounds = window.skeleton.bounds;
+			if (canvas.width != w || canvas.height != h) {
+				canvas.width = w;
+				canvas.height = h;
+			}
+
+			// magic
+			var centerX = bounds.offset.x + bounds.size.x / 2;
+			var centerY = bounds.offset.y + bounds.size.y / 2;
+			var scaleX = bounds.size.x / canvas.width;
+			var scaleY = bounds.size.y / canvas.height;
+			var scale = Math.max(scaleX, scaleY) * 1.2;
+			if (scale < 1) scale = 1;
+			var width = canvas.width * scale;
+			var height = canvas.height * scale;
+
+			mvp.ortho2d(centerX - width / 2, centerY - height / 2, width, height);
+			gl.viewport(0, 0, canvas.width, canvas.height);
+		}
+
+		(function () {
+			init();
+		})();
+
+	</script>
+</body>
+
+</html>
