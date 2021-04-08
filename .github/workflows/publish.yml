@@ -32,6 +32,8 @@ jobs:
         run: |
           pushd spine-core
           git add lib
+          git config user.name 'KiruyaMomochi'
+          git config user.email 'KiruyaMomochi@users.noreply.github.com'
           git commit -m ${{ github.ref }}
           git push
           popd
