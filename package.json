@@ -1,0 +1,8 @@
+{
+    "name": "spine-all",
+    "version": "3.8.0",
+    "main": "build/spine-all.js",
+    "description": "2D skeletal animation runtimes for Spine.",
+    "author": "Gourmet Edifice",
+    "private": true
+}
