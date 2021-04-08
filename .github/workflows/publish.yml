@@ -30,10 +30,43 @@ jobs:
           tsc -p ./tsconfig.core.json --outfile ./spine-core/lib/spine-core.js
       - name: Push files
         run: |
+          $ref = ${{ github.ref }}
           pushd spine-core
           git add lib
           git config user.name 'KiruyaMomochi'
           git config user.email 'KiruyaMomochi@users.noreply.github.com'
-          git commit -m ${{ github.ref }}
+          git commit -m $ref
+          git push
+          popd
+
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        type: [ core, webgl, threejs ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Checkout spine-${{ matrix.type }
+        uses: actions/checkout@v2
+        with:
+          repository: 'GourmetEdifice/spine-${{ matrix.type }'
+          path: './spine-${{ matrix.type }'
+          token: ${{ secrets.SPINE_GUILD_TOKEN }}
+      - name: Setup node.js
+        uses: actions/setup-node@v1
+      - name: Install typescript
+        run: npm install -g typescript
+      - name: Build ${{ matrix.type }
+        run: |
+          tsc -p ./tsconfig.${{ matrix.type }.json --outfile ./spine-${{ matrix.type }/lib/spine-${{ matrix.type }.js
+      - name: Push files
+        run: |
+          $ref = ${{ github.ref }}
+          pushd spine-${{ matrix.type }
+          git add lib
+          git config user.name 'KiruyaMomochi'
+          git config user.email 'KiruyaMomochi@users.noreply.github.com'
+          git commit -m $ref
           git push
           popd
