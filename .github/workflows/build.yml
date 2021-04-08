@@ -2,7 +2,7 @@ name: Build Spine
 
 on:
   push:
-    branches: [ $default-branch ]
+    branches: [ 3.8-m ]
 
 defaults:
   run:
