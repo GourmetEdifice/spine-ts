@@ -10,35 +10,6 @@ defaults:
     shell: pwsh
 
 jobs:
-  core:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Checkout spine-core
-        uses: actions/checkout@v2
-        with:
-          repository: 'GourmetEdifice/spine-core'
-          path: './spine-core'
-          token: ${{ secrets.SPINE_GUILD_TOKEN }}
-      - name: Setup node.js
-        uses: actions/setup-node@v1
-      - name: Install typescript
-        run: npm install -g typescript
-      - name: Build core
-        run: |
-          tsc -p ./tsconfig.core.json --outfile ./spine-core/lib/spine-core.js
-      - name: Push files
-        run: |
-          $ref = ${{ github.ref }}
-          pushd spine-core
-          git add lib
-          git config user.name 'KiruyaMomochi'
-          git config user.email 'KiruyaMomochi@users.noreply.github.com'
-          git commit -m $ref
-          git push
-          popd
-
   publish:
     runs-on: ubuntu-latest
     strategy:
@@ -62,7 +33,7 @@ jobs:
           tsc -p ./tsconfig.${{ matrix.type }}.json --outfile ./spine-${{ matrix.type }}/lib/spine-${{ matrix.type }}.js
       - name: Push files
         run: |
-          $ref = ${{ github.ref }}
+          $ref = "${{ github.ref }}"
           pushd spine-${{ matrix.type }}
           git add lib
           git config user.name 'KiruyaMomochi'
