@@ -47,7 +47,7 @@ module spine {
 	 * See [Spine binary format](http://esotericsoftware.com/spine-binary-format) and
 	 * [JSON and binary data](http://esotericsoftware.com/spine-loading-skeleton-data#JSON-and-binary-data) in the Spine
 	 * Runtimes Guide. */
-	export class SkeletonBinary {
+	export class CyspBinary {
 		static AttachmentTypeValues = [ 0 /*AttachmentType.Region*/, 1/*AttachmentType.BoundingBox*/, 2/*AttachmentType.Mesh*/, 3/*AttachmentType.LinkedMesh*/, 4/*AttachmentType.Path*/, 5/*AttachmentType.Point*/, 6/*AttachmentType.Clipping*/ ];
 		static TransformModeValues = [TransformMode.Normal, TransformMode.OnlyTranslation, TransformMode.NoRotationOrReflection, TransformMode.NoScale, TransformMode.NoScaleOrReflection];
 		static PositionModeValues = [ PositionMode.Fixed, PositionMode.Percent ];
@@ -77,7 +77,7 @@ module spine {
 		 *
 		 * See [Scaling](http://esotericsoftware.com/spine-loading-skeleton-data#Scaling) in the Spine Runtimes Guide. */
 		scale = 1;
-
+		cyspHeader : spine.CyspHeader = null;
 		attachmentLoader: AttachmentLoader;
 		private linkedMeshes = new Array<LinkedMesh>();
 
@@ -85,36 +85,16 @@ module spine {
 			this.attachmentLoader = attachmentLoader;
 		}
 
-		private pref: FieldPreference;
-
 		readSkeletonData (binary: Uint8Array): SkeletonData {
-			let skeletonData = new SkeletonData();
-			skeletonData.name = ""; // BOZO
-
-			let input = new BinaryInput(binary);
-
-			this.readSkeletonBone(input, skeletonData);
-
-			// Animations.
-			let n = input.readInt(true);
-			for (let i = 0; i < n; i++)
-				skeletonData.animations.push(this.readAnimation(input, input.readString(), skeletonData));
-			return skeletonData;
-		}
-
-		readSkeletonBone(input: BinaryInput, skeletonData: SkeletonData) {
 			let scale = this.scale;
+			let input = new spine.BinaryStream(binary);
+			let skeletonData = this.readCyspBone(input);
 
-			skeletonData.hash = input.readString();
-			skeletonData.version = input.readString();			
+			let pref = new FieldPreference;
 
-			this.pref = new FieldPreference();
-
-			if ("3.8.75" == skeletonData.version)
-				throw new Error("Unsupported skeleton data, please export with a newer version of Spine.");
-			else if (skeletonData.version.indexOf('3.6') == 0) {
-				this.pref = {
-					...this.pref,
+			if (skeletonData.version.indexOf('3.6') == 0) {
+				pref = {
+					...pref,
 					x: false,
 					y: false,
 					strings: false,
@@ -129,8 +109,91 @@ module spine {
 				};
 			}
 
-			if (this.pref.x) skeletonData.x = input.readFloat();
-			if (this.pref.y) skeletonData.y = input.readFloat();
+			// Animations.
+			let n = input.canRead(4) ? input.readInt(true) : 0;
+			for (let i = 0; i < n; i++)
+				skeletonData.animations.push(this.readAnimation(input, input.readString(), skeletonData, pref));
+
+			return skeletonData;
+		}
+		
+		readSkeletonDevisionCyspSkeleton (binary: Uint8Array): SkeletonData {
+			let scale = this.scale;
+
+			let input = new spine.BinaryStream(binary);
+			this.cyspHeader = new spine.CyspHeader(input);
+
+			if (this.cyspHeader.magic_word != 'cysp')
+				throw new Error("unknown format.");
+			if (this.cyspHeader.version.indexOf('0.1') != 0)
+				throw new Error("Unsupported cysp data, please export with a newer version of Cygames.");
+			if (this.cyspHeader.bodyCount < 1)
+				throw new Error("body not found.");
+			if (this.cyspHeader.binaryBodyAddress[0].binaryFormatType != 'base')
+				throw new Error("this cysp file doesn't contains skeleton body.");
+			
+			let skeletonData = this.readCyspBone(input);
+
+			let pref = new FieldPreference;
+
+			if (skeletonData.version.indexOf('3.6') == 0) {
+				pref = {
+					...pref,
+					x: false,
+					y: false,
+					strings: false,
+					skinRequired: false,
+					enumInBytes: true,
+					stringRef: false,
+					bendDirectionInBool: true,
+					softness: false,
+					ikMore: false,
+					skinBones: false,
+					eventsAudioPath: false
+				};
+			}
+
+			// Animations.
+			let n = 1;
+			for (let bodyCount = this.cyspHeader.bodyCount; n < bodyCount; ++n)
+				skeletonData.animations.push(this.readAnimation(input, input.readString(), skeletonData, pref));
+			
+			return skeletonData;
+		}
+		
+		
+		readCyspBone (input: spine.BinaryStream): SkeletonData {
+			let scale = this.scale;
+
+			let skeletonData = new SkeletonData();
+			skeletonData.name = ""; // BOZO
+
+			skeletonData.hash = input.readString();
+			skeletonData.version = input.readString();
+
+			let pref = new FieldPreference;
+
+			if ("3.8.75" == skeletonData.version)
+					throw new Error("Unsupported skeleton data, please export with a newer version of Spine.");
+			else if (skeletonData.version.indexOf('3.6') == 0) {
+				pref = {
+					...pref,
+					x: false,
+					y: false,
+					strings: false,
+					skinRequired: false,
+					enumInBytes: true,
+					stringRef: false,
+					bendDirectionInBool: true,
+					softness: false,
+					ikMore: false,
+					skinBones: false,
+					eventsAudioPath: false
+				};
+			}
+
+			if (pref.x) skeletonData.x = input.readFloat();
+			if (pref.y) skeletonData.y = input.readFloat();
 			skeletonData.width = input.readFloat();
 			skeletonData.height = input.readFloat();
 
@@ -145,7 +208,7 @@ module spine {
 			let n = 0;
 
 			// Strings.
-			if (this.pref.strings) {
+			if (pref.strings) {
 			n = input.readInt(true)
 			for (let i = 0; i < n; i++)
 				input.strings.push(input.readString());
@@ -166,12 +229,12 @@ module spine {
 				data.shearY = input.readFloat();
 				data.length = input.readFloat() * scale;
 
-				if (this.pref.enumInBytes)
-					data.transformMode = SkeletonBinary.TransformModeValues[input.readByte()];
+				if (pref.enumInBytes)
+					data.transformMode = CyspBinary.TransformModeValues[input.readByte()];
 				else
-					data.transformMode = SkeletonBinary.TransformModeValues[input.readInt(true)];
+					data.transformMode = CyspBinary.TransformModeValues[input.readInt(true)];
 
-				if (this.pref.skinRequired) data.skinRequired = input.readBoolean();
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				if (nonessential) Color.rgba8888ToColor(data.color, input.readInt32());
 				skeletonData.bones.push(data);
 			}
@@ -187,12 +250,12 @@ module spine {
 				let darkColor = input.readInt32();
 				if (darkColor != -1) Color.rgb888ToColor(data.darkColor = new Color(), darkColor);
 
-				data.attachmentName = this.pref.stringRef ? input.readStringRef() : input.readString();
+				data.attachmentName = pref.stringRef ? input.readStringRef() : input.readString();
 
-				if (this.pref.enumInBytes)
-					data.blendMode = SkeletonBinary.BlendModeValues[input.readByte()];
+				if (pref.enumInBytes)
+					data.blendMode = CyspBinary.BlendModeValues[input.readByte()];
 				else
-					data.blendMode = SkeletonBinary.BlendModeValues[input.readInt(true)];
+					data.blendMode = CyspBinary.BlendModeValues[input.readInt(true)];
 				skeletonData.slots.push(data);
 			}
 
@@ -201,21 +264,21 @@ module spine {
 			for (let i = 0, nn; i < n; i++) {
 				let data = new IkConstraintData(input.readString());
 				data.order = input.readInt(true);
-				if (this.pref.skinRequired) data.skinRequired = input.readBoolean();
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				nn = input.readInt(true);
 				for (let ii = 0; ii < nn; ii++)
 					data.bones.push(skeletonData.bones[input.readInt(true)]);
 				data.target = skeletonData.bones[input.readInt(true)];
 				data.mix = input.readFloat();
 
-				if (this.pref.softness) data.softness = input.readFloat() * scale;
+				if (pref.softness) data.softness = input.readFloat() * scale;
 
-				if (this.pref.bendDirectionInBool)
+				if (pref.bendDirectionInBool)
 					data.bendDirection = input.readBoolean() ? 1 : -1;
 				else
 				data.bendDirection = input.readByte();
 
-				if (this.pref.ikMore) {
+				if (pref.ikMore) {
 				data.compress = input.readBoolean();
 				data.stretch = input.readBoolean();
 				data.uniform = input.readBoolean();
@@ -229,7 +292,7 @@ module spine {
 			for (let i = 0, nn; i < n; i++) {
 				let data = new TransformConstraintData(input.readString());
 				data.order = input.readInt(true);
-				if (this.pref.skinRequired) data.skinRequired = input.readBoolean();
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				nn = input.readInt(true);
 				for (let ii = 0; ii < nn; ii++)
 					data.bones.push(skeletonData.bones[input.readInt(true)]);
@@ -254,21 +317,21 @@ module spine {
 			for (let i = 0, nn; i < n; i++) {
 				let data = new PathConstraintData(input.readString());
 				data.order = input.readInt(true);
-				if (this.pref.skinRequired) data.skinRequired = input.readBoolean();
+				if (pref.skinRequired) data.skinRequired = input.readBoolean();
 				nn = input.readInt(true);
 				for (let ii = 0; ii < nn; ii++)
 					data.bones.push(skeletonData.bones[input.readInt(true)]);
 				data.target = skeletonData.slots[input.readInt(true)];
 
-				if (this.pref.enumInBytes) {
-					data.positionMode = SkeletonBinary.PositionModeValues[input.readByte()];
-					data.spacingMode = SkeletonBinary.SpacingModeValues[input.readByte()];
-					data.rotateMode = SkeletonBinary.RotateModeValues[input.readByte()];
+				if (pref.enumInBytes) {
+					data.positionMode = CyspBinary.PositionModeValues[input.readByte()];
+					data.spacingMode = CyspBinary.SpacingModeValues[input.readByte()];
+					data.rotateMode = CyspBinary.RotateModeValues[input.readByte()];
 				}
 				else {
-					data.positionMode = SkeletonBinary.PositionModeValues[input.readInt(true)];
-					data.spacingMode = SkeletonBinary.SpacingModeValues[input.readInt(true)];
-					data.rotateMode = SkeletonBinary.RotateModeValues[input.readInt(true)];
+					data.positionMode = CyspBinary.PositionModeValues[input.readInt(true)];
+					data.spacingMode = CyspBinary.SpacingModeValues[input.readInt(true)];
+					data.rotateMode = CyspBinary.RotateModeValues[input.readInt(true)];
 				}
 
 				data.offsetRotation = input.readFloat();
@@ -282,7 +345,7 @@ module spine {
 			}
 
 			// Default skin.
-			let defaultSkin = this.readSkin(input, skeletonData, true, nonessential);
+			let defaultSkin = this.readSkin(input, skeletonData, true, nonessential, pref);
 			if (defaultSkin != null) {
 				skeletonData.defaultSkin = defaultSkin;
 				skeletonData.skins.push(defaultSkin);
@@ -293,7 +356,7 @@ module spine {
 				let i = skeletonData.skins.length;
 				Utils.setArraySize(skeletonData.skins, n = i + input.readInt(true));
 				for (; i < n; i++)
-					skeletonData.skins[i] = this.readSkin(input, skeletonData, false, nonessential);
+					skeletonData.skins[i] = this.readSkin(input, skeletonData, false, nonessential, pref);
 			}
 
 			// Linked meshes.
@@ -313,12 +376,12 @@ module spine {
 			// Events.
 			n = input.readInt(true);
 			for (let i = 0; i < n; i++) {
-				let data = new EventData(this.pref.stringRef ? input.readStringRef() : input.readString());
+				let data = new EventData(pref.stringRef ? input.readStringRef() : input.readString());
 				data.intValue = input.readInt(false);
 				data.floatValue = input.readFloat();
 				data.stringValue = input.readString();
 				
-				if (this.pref.eventsAudioPath)
+				if (pref.eventsAudioPath)
 				{
 				data.audioPath = input.readString();
 				if (data.audioPath != null) {
@@ -328,76 +391,12 @@ module spine {
 				}
 				skeletonData.events.push(data);
 			}
-		}
-		
-		readSkeletonDevisionCyspSkeleton (binary: Uint8Array, checkBody = false): SkeletonData {
-			let input = new CyspInput(binary);
-			let skeletonData = new SkeletonData();
 
-			let headerData = input.readDataView(0, 32);
-			let binaryHeader = new BinaryHeader(headerData);
-
-			if (!binaryHeader.checkTag())
-				throw new Error("unknown format.");
-			if (!binaryHeader.checkVersion())
-				throw new Error("Unsupported cysp data, please export with a newer version of Cygames.");
-			if (binaryHeader.bodyCount < 1)
-				throw new Error("body not found.");
-
-			let bodyAddress: Array<BinaryBodyAddress>;
-			if (checkBody)
-			{
-				bodyAddress = new Array<BinaryBodyAddress>(binaryHeader.bodyCount);
-				for (let i = 0; i < binaryHeader.bodyCount; i++) {
-					let bodyData = input.readDataView(0, 32);
-					bodyAddress[i] = new BinaryBodyAddress(bodyData);
-				}
-	
-				if (bodyAddress[0].binaryFormat != FormatData.Base)
-					throw new Error("this cysp file doesn't contains skeleton body.");
-			}
-			else
-				input.skip((binaryHeader.bodyCount * 32));
-
-			this.readSkeletonBone(input, skeletonData);
-
-			// Animations.
-			let n = 1;
-			for (let bodyCount = binaryHeader.bodyCount; n < bodyCount; ++n)
-				skeletonData.animations.push(this.readAnimation(input, input.readString(), skeletonData));
-			
 			return skeletonData;
 		}
+		
 
-		readSkeletonDevisionCyspAnimation (binary: Uint8Array, skeletonData: SkeletonData): string[] {
-			let input = new CyspInput(binary);
-			let headerData = input.readDataView(0, 32);
-			let binaryHeader = new BinaryHeader(headerData);
-			
-			if (!binaryHeader.checkTag())
-				throw new Error("unknown format.");
-			if (!binaryHeader.checkVersion())
-				throw new Error("Unsupported cysp data, please export with a newer version of Cygames.");
-			if (binaryHeader.bodyCount < 1)
-				throw new Error("body not found.");
-				
-			input.skip((binaryHeader.bodyCount * 32));
-
-			// Animations.
-			let n = 1;
-			const bodys = new Array<string>(binaryHeader.bodyCount);
-
-			for (let bodyCount = binaryHeader.bodyCount; n < bodyCount; ++n)
-			{
-				const name = input.readString();
-				skeletonData.animations.push(this.readAnimation(input, name, skeletonData))
-				bodys[bodyCount] = name;
-			}
-			
-			return bodys;
-		}
-
-		private readSkin (input: BinaryInput, skeletonData: SkeletonData, defaultSkin: boolean, nonessential: boolean): Skin {
+		private readSkin (input: spine.BinaryStream, skeletonData: SkeletonData, defaultSkin: boolean, nonessential: boolean, pref: FieldPreference): Skin {
 			let skin = null;
 			let slotCount = 0;
 
@@ -406,9 +405,9 @@ module spine {
 				if (slotCount == 0) return null;
 				skin = new Skin("default");
 			} else {
-				skin = new Skin(this.pref.stringRef ? input.readStringRef() : input.readString());
+				skin = new Skin(pref.stringRef ? input.readStringRef() : input.readString());
 
-				if (this.pref.skinBones) {
+				if (pref.skinBones) {
 				skin.bones.length = input.readInt(true);
 				for (let i = 0, n = skin.bones.length; i < n; i++)
 					skin.bones[i] = skeletonData.bones[input.readInt(true)];
@@ -427,25 +426,25 @@ module spine {
 			for (let i = 0; i < slotCount; i++) {
 				let slotIndex = input.readInt(true);
 				for (let ii = 0, nn = input.readInt(true); ii < nn; ii++) {
-					let name = this.pref.stringRef ? input.readStringRef() : input.readString();
-					let attachment = this.readAttachment(input, skeletonData, skin, slotIndex, name, nonessential);
+					let name = pref.stringRef ? input.readStringRef() : input.readString();
+					let attachment = this.readAttachment(input, skeletonData, skin, slotIndex, name, nonessential, pref);
 					if (attachment != null) skin.setAttachment(slotIndex, name, attachment);
 				}
 			}
 			return skin;
 		}
 
-		private readAttachment(input: BinaryInput, skeletonData: SkeletonData, skin: Skin, slotIndex: number, attachmentName: string, nonessential: boolean): Attachment {
+		private readAttachment(input: spine.BinaryStream, skeletonData: SkeletonData, skin: Skin, slotIndex: number, attachmentName: string, nonessential: boolean, pref: FieldPreference): Attachment {
 			let scale = this.scale;
 
-			let name = this.pref.stringRef ? input.readStringRef() : input.readString();
+			let name = pref.stringRef ? input.readStringRef() : input.readString();
 			if (name == null) name = attachmentName;
 
 			let typeIndex = input.readByte();
-			let type = SkeletonBinary.AttachmentTypeValues[typeIndex];
+			let type = CyspBinary.AttachmentTypeValues[typeIndex];
 			switch (type) {
 			case AttachmentType.Region: {
-				let path = this.pref.stringRef ? input.readStringRef() : input.readString();
+				let path = pref.stringRef ? input.readStringRef() : input.readString();
 				let rotation = input.readFloat();
 				let x = input.readFloat();
 				let y = input.readFloat();
@@ -484,7 +483,7 @@ module spine {
 				return box;
 			}
 			case AttachmentType.Mesh: {
-				let path = this.pref.stringRef ? input.readStringRef() : input.readString();
+				let path = pref.stringRef ? input.readStringRef() : input.readString();
 				let color = input.readInt32();
 				let vertexCount = input.readInt(true);
 				let uvs = this.readFloatArray(input, vertexCount << 1, 1);
@@ -519,10 +518,10 @@ module spine {
 				return mesh;
 			}
 			case AttachmentType.LinkedMesh: {
-				let path = this.pref.stringRef ? input.readStringRef() : input.readString();
+				let path = pref.stringRef ? input.readStringRef() : input.readString();
 				let color = input.readInt32();
-				let skinName = this.pref.stringRef ? input.readStringRef() : input.readString();
-				let parent = this.pref.stringRef ? input.readStringRef() : input.readString();
+				let skinName = pref.stringRef ? input.readStringRef() : input.readString();
+				let parent = pref.stringRef ? input.readStringRef() : input.readString();
 				let inheritDeform = input.readBoolean();
 				let width = 0, height = 0;
 				if (nonessential) {
@@ -596,7 +595,7 @@ module spine {
 			return null;
 		}
 
-		private readVertices (input: BinaryInput, vertexCount: number): Vertices {
+		private readVertices (input: spine.BinaryStream, vertexCount: number): Vertices {
 			let verticesLength = vertexCount << 1;
 			let vertices = new Vertices();
 			let scale = this.scale;
@@ -621,7 +620,7 @@ module spine {
 			return vertices;
 		}
 
-		private readFloatArray (input: BinaryInput, n: number, scale: number): number[] {
+		private readFloatArray (input: spine.BinaryStream, n: number, scale: number): number[] {
 			let array = new Array<number>(n);
 			if (scale == 1) {
 				for (let i = 0; i < n; i++)
@@ -633,7 +632,7 @@ module spine {
 			return array;
 		}
 
-		private readShortArray (input: BinaryInput): number[] {
+		private readShortArray (input: spine.BinaryStream): number[] {
 			let n = input.readInt(true);
 			let array = new Array<number>(n);
 			for (let i = 0; i < n; i++)
@@ -641,7 +640,7 @@ module spine {
 			return array;
 		}
 
-		private readAnimation (input: BinaryInput, name: string, skeletonData: SkeletonData): Animation {
+		private readAnimation (input: spine.BinaryStream, name: string, skeletonData: SkeletonData, pref: FieldPreference): Animation {
 			let timelines = new Array<Timeline>();
 			let scale = this.scale;
 			let duration = 0;
@@ -655,17 +654,17 @@ module spine {
 					let timelineType = input.readByte();
 					let frameCount = input.readInt(true);
 					switch (timelineType) {
-					case SkeletonBinary.SLOT_ATTACHMENT: {
+					case CyspBinary.SLOT_ATTACHMENT: {
 						let timeline = new AttachmentTimeline(frameCount);
 						timeline.slotIndex = slotIndex;
 						for (let frameIndex = 0; frameIndex < frameCount; frameIndex++)
 							timeline.setFrame(frameIndex, input.readFloat(), 
-							this.pref.stringRef ? input.readStringRef() : input.readString());
+							pref.stringRef ? input.readStringRef() : input.readString());
 						timelines.push(timeline);
 						duration = Math.max(duration, timeline.frames[frameCount - 1]);
 						break;
 					}
-					case SkeletonBinary.SLOT_COLOR: {
+					case CyspBinary.SLOT_COLOR: {
 						let timeline = new ColorTimeline(frameCount);
 						timeline.slotIndex = slotIndex;
 						for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
@@ -678,7 +677,7 @@ module spine {
 						duration = Math.max(duration, timeline.frames[(frameCount - 1) * ColorTimeline.ENTRIES]);
 						break;
 					}
-					case SkeletonBinary.SLOT_TWO_COLOR: {
+					case CyspBinary.SLOT_TWO_COLOR: {
 						let timeline = new TwoColorTimeline(frameCount);
 						timeline.slotIndex = slotIndex;
 						for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
@@ -704,7 +703,7 @@ module spine {
 					let timelineType = input.readByte();
 					let frameCount = input.readInt(true);
 					switch (timelineType) {
-					case SkeletonBinary.BONE_ROTATE: {
+					case CyspBinary.BONE_ROTATE: {
 						let timeline = new RotateTimeline(frameCount);
 						timeline.boneIndex = boneIndex;
 						for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
@@ -715,14 +714,14 @@ module spine {
 						duration = Math.max(duration, timeline.frames[(frameCount - 1) * RotateTimeline.ENTRIES]);
 						break;
 					}
-					case SkeletonBinary.BONE_TRANSLATE:
-					case SkeletonBinary.BONE_SCALE:
-					case SkeletonBinary.BONE_SHEAR: {
+					case CyspBinary.BONE_TRANSLATE:
+					case CyspBinary.BONE_SCALE:
+					case CyspBinary.BONE_SHEAR: {
 						let timeline;
 						let timelineScale = 1;
-						if (timelineType == SkeletonBinary.BONE_SCALE)
+						if (timelineType == CyspBinary.BONE_SCALE)
 							timeline = new ScaleTimeline(frameCount);
-						else if (timelineType == SkeletonBinary.BONE_SHEAR)
+						else if (timelineType == CyspBinary.BONE_SHEAR)
 							timeline = new ShearTimeline(frameCount);
 						else {
 							timeline = new TranslateTimeline(frameCount);
@@ -780,11 +779,11 @@ module spine {
 					let timelineType = input.readByte();
 					let frameCount = input.readInt(true);
 					switch (timelineType) {
-					case SkeletonBinary.PATH_POSITION:
-					case SkeletonBinary.PATH_SPACING: {
+					case CyspBinary.PATH_POSITION:
+					case CyspBinary.PATH_SPACING: {
 						let timeline;
 						let timelineScale = 1;
-						if (timelineType == SkeletonBinary.PATH_SPACING) {
+						if (timelineType == CyspBinary.PATH_SPACING) {
 							timeline = new PathConstraintSpacingTimeline(frameCount);
 							if (data.spacingMode == SpacingMode.Length || data.spacingMode == SpacingMode.Fixed) timelineScale = scale;
 						} else {
@@ -800,7 +799,7 @@ module spine {
 						duration = Math.max(duration, timeline.frames[(frameCount - 1) * PathConstraintPositionTimeline.ENTRIES]);
 						break;
 					}
-					case SkeletonBinary.PATH_MIX: {
+					case CyspBinary.PATH_MIX: {
 						let timeline = new PathConstraintMixTimeline(frameCount);
 						timeline.pathConstraintIndex = index;
 						for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
@@ -822,7 +821,7 @@ module spine {
 					let slotIndex = input.readInt(true);
 					for (let iii = 0, nnn = input.readInt(true); iii < nnn; iii++) {
 						let attachment = skin.getAttachment(slotIndex, 
-							this.pref.stringRef ? input.readStringRef() : input.readString()) as VertexAttachment;
+							pref.stringRef ? input.readStringRef() : input.readString()) as VertexAttachment;
 						let weighted = attachment.bones != null;
 						let vertices = attachment.vertices;
 						let deformLength = weighted ? vertices.length / 3 * 2 : vertices.length;
@@ -908,7 +907,7 @@ module spine {
 					event.intValue = input.readInt(false);
 					event.floatValue = input.readFloat();
 					event.stringValue = input.readBoolean()
-					    ? (this.pref.stringRef ? input.readStringRef() : input.readString())
+					    ? (pref.stringRef ? input.readStringRef() : input.readString())
 						: eventData.stringValue;
 					if (event.data.audioPath != null) {
 						event.volume = input.readFloat();
@@ -923,12 +922,12 @@ module spine {
 			return new Animation(name, timelines, duration);
 		}
 
-		private readCurve (input: BinaryInput, frameIndex: number, timeline: CurveTimeline) {
+		private readCurve (input: spine.BinaryStream, frameIndex: number, timeline: CurveTimeline) {
 			switch (input.readByte()) {
-			case SkeletonBinary.CURVE_STEPPED:
+			case CyspBinary.CURVE_STEPPED:
 				timeline.setStepped(frameIndex);
 				break;
-			case SkeletonBinary.CURVE_BEZIER:
+			case CyspBinary.CURVE_BEZIER:
 				this.setCurve(timeline, frameIndex, input.readFloat(), input.readFloat(), input.readFloat(), input.readFloat());
 				break;
 			}
@@ -936,119 +935,6 @@ module spine {
 
 		setCurve (timeline: CurveTimeline, frameIndex: number, cx1: number, cy1: number, cx2: number, cy2: number) {
 			timeline.setCurve(frameIndex, cx1, cy1, cx2, cy2);
-		}
-	}
-
-	class BinaryInput {
-		constructor(data: Uint8Array, public strings = new Array<string>(), protected index: number = 0, protected buffer = new DataView(data.buffer)) { 
-
-		}
-
-		readByte(): number {
-			return this.buffer.getInt8(this.index++);
-		}
-
-		readShort(): number {
-			let value = this.buffer.getInt16(this.index);
-			this.index += 2;
-			return value;
-		}
-
-		readInt32(): number {
-			 let value = this.buffer.getInt32(this.index)
-			 this.index += 4;
-			 return value;
-		}
-
-		readInt(optimizePositive: boolean) {
-			let b = this.readByte();
-			let result = b & 0x7F;
-			if ((b & 0x80) != 0) {
-				b = this.readByte();
-				result |= (b & 0x7F) << 7;
-				if ((b & 0x80) != 0) {
-					b = this.readByte();
-					result |= (b & 0x7F) << 14;
-					if ((b & 0x80) != 0) {
-						b = this.readByte();
-						result |= (b & 0x7F) << 21;
-						if ((b & 0x80) != 0) {
-							b = this.readByte();
-							result |= (b & 0x7F) << 28;
-						}
-					}
-				}
-			}
-			return optimizePositive ? result : ((result >>> 1) ^ -(result & 1));
-		}
-
-		readStringRef (): string {
-			let index = this.readInt(true);
-			return index == 0 ? null : this.strings[index - 1];
-		}
-
-		readString (): string {
-			let byteCount = this.readInt(true);
-			switch (byteCount) {
-			case 0:
-				return null;
-			case 1:
-				return "";
-			}
-			byteCount--;
-			let chars = "";
-			let charCount = 0;
-			for (let i = 0; i < byteCount;) {
-				let b = this.readByte();
-				switch (b >> 4) {
-				case 12:
-				case 13:
-					chars += String.fromCharCode(((b & 0x1F) << 6 | this.readByte() & 0x3F));
-					i += 2;
-					break;
-				case 14:
-					chars += String.fromCharCode(((b & 0x0F) << 12 | (this.readByte() & 0x3F) << 6 | this.readByte() & 0x3F));
-					i += 3;
-					break;
-				default:
-					chars += String.fromCharCode(b);
-					i++;
-				}
-			}
-			return chars;
-		}
-
-		readFloat (): number {
-			let value = this.buffer.getFloat32(this.index);
-			this.index += 4;
-			return value;
-		}
-
-		readBoolean (): boolean {
-			return this.readByte() != 0;
-		}
-	}
-
-	class CyspInput extends BinaryInput {
-		constructor(data: Uint8Array, public strings = new Array<string>(), protected index: number = 0, protected buffer = new DataView(data.buffer)) { 
-			super(data, strings, index, buffer);
-		}
-
-		readArray(dest: Uint8Array, destOffset: number, copySize: number) : void {
-			const realOffset = this.index + destOffset;
-			const slice = this.buffer.buffer.slice(realOffset, realOffset + copySize);
-			this.index += copySize;
-			dest.set(new Uint8Array(slice), destOffset);	
-		}
-		
-		readDataView (destOffset: number, copySize: number) : DataView {
-			const offset = this.buffer.byteOffset + this.index + destOffset;
-			this.index += copySize;
-			return new DataView(this.buffer.buffer, offset, copySize);
-		}
-		
-		skip (offset: number) {
-			this.index += offset;
 		}
 	}
 
