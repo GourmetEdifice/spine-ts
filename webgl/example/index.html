@@ -84,7 +84,7 @@ function init () {
 	assetManager.loadBinary("assets/coin-pro.skel");
 	assetManager.loadTextureAtlas("assets/coin-pma.atlas");
 	assetManager.loadBinary("assets/kyaru/112011.skel");
-	assetManager.loadTextureAtlas("assets/kyaru/112011-pma.atlas");
+	assetManager.loadTextureAtlas("assets/kyaru/112011.atlas");
 	requestAnimationFrame(load);
 }
 
@@ -98,7 +98,7 @@ function load () {
 		skeletons["vine"] = loadSkeleton("vine-pro", "grow", true);
 		skeletons["stretchyman"] = loadSkeleton("stretchyman-pro", "sneak", true);
 		skeletons["coin"] = loadSkeleton("coin-pro", "animation", true);
-		skeletons["kyaru"] = loadSkeleton("kyaru/112011", "eye_idle", true);
+		// skeletons["kyaru"] = loadSkeleton("kyaru/112011", "eye_idle", true);
 		setupUI();
 		lastFrameTime = Date.now() / 1000;
 		requestAnimationFrame(render); // Loading is done, call render every frame.
