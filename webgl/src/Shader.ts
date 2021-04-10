@@ -36,15 +36,15 @@ module spine.webgl {
 		public static TEXCOORDS = "a_texCoords";
 		public static SAMPLER = "u_texture";
 
-		private context: ManagedWebGLRenderingContext;
-		private vs: WebGLShader = null;
-		private vsSource: string;
-		private fs: WebGLShader = null;
-		private fsSource: string;
-		private program: WebGLProgram = null;
-		private tmp2x2: Float32Array = new Float32Array(2 * 2);
-		private tmp3x3: Float32Array = new Float32Array(3 * 3);
-		private tmp4x4: Float32Array = new Float32Array(4 * 4);
+		protected context: ManagedWebGLRenderingContext;
+		protected vs: WebGLShader = null;
+		protected vsSource: string;
+		protected fs: WebGLShader = null;
+		protected fsSource: string;
+		protected program: WebGLProgram = null;
+		protected tmp2x2: Float32Array = new Float32Array(2 * 2);
+		protected tmp3x3: Float32Array = new Float32Array(3 * 3);
+		protected tmp4x4: Float32Array = new Float32Array(4 * 4);
 
 		public getProgram () { return this.program; }
 		public getVertexShader () { return this.vertexShader; }
@@ -52,7 +52,7 @@ module spine.webgl {
 		public getVertexShaderSource () { return this.vsSource; }
 		public getFragmentSource () { return this.fsSource; }
 
-		constructor (context: ManagedWebGLRenderingContext | WebGLRenderingContext, private vertexShader: string, private fragmentShader: string) {
+		constructor (context: ManagedWebGLRenderingContext | WebGLRenderingContext, protected vertexShader: string, protected fragmentShader: string) {
 			this.vsSource = vertexShader;
 			this.fsSource = fragmentShader;
 			this.context = context instanceof ManagedWebGLRenderingContext? context : new ManagedWebGLRenderingContext(context);
@@ -72,7 +72,7 @@ module spine.webgl {
 			}
 		}
 
-		private compileShader (type: number, source: string) {
+		protected compileShader (type: number, source: string) {
 			let gl = this.context.gl;
 			let shader = gl.createShader(type);
 			gl.shaderSource(shader, source);
@@ -85,7 +85,7 @@ module spine.webgl {
 			return shader;
 		}
 
-		private compileProgram (vs: WebGLShader, fs: WebGLShader) {
+		protected compileProgram (vs: WebGLShader, fs: WebGLShader) {
 			let gl = this.context.gl;
 			let program = gl.createProgram();
 			gl.attachShader(program, vs);
@@ -209,10 +209,10 @@ module spine.webgl {
 				#endif
 				varying LOWP vec4 v_color;
 				varying vec2 v_texCoords;
-				uniform sampler2D u_texture;
+				uniform sampler2D ${Shader.SAMPLER};
 
 				void main () {
-					gl_FragColor = v_color * texture2D(u_texture, v_texCoords);
+					gl_FragColor = v_color * texture2D(${Shader.SAMPLER}, v_texCoords);
 				}
 			`;
 
@@ -248,10 +248,10 @@ module spine.webgl {
 				varying LOWP vec4 v_light;
 				varying LOWP vec4 v_dark;
 				varying vec2 v_texCoords;
-				uniform sampler2D u_texture;
+				uniform sampler2D ${Shader.SAMPLER};
 
 				void main () {
-					vec4 texColor = texture2D(u_texture, v_texCoords);
+					vec4 texColor = texture2D(${Shader.SAMPLER}, v_texCoords);
 					gl_FragColor.a = texColor.a * v_light.a;
 					gl_FragColor.rgb = ((texColor.a - 1.0) * v_dark.a + 1.0 - texColor.rgb) * v_dark.rgb + texColor.rgb * v_light.rgb;
 				}
@@ -290,4 +290,5 @@ module spine.webgl {
 			return new Shader(context, vs, fs);
 		}
 	}
+
 }
