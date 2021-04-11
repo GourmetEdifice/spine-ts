@@ -384,10 +384,9 @@ module spine {
 			input.skip((binaryHeader.bodyCount * 32));
 
 			// Animations.
-			let n = 1;
 			const bodys = new Array<string>();
 
-			for (let bodyCount = binaryHeader.bodyCount; n < bodyCount; ++n)
+			for (let i =0; i < binaryHeader.bodyCount; ++i)
 			{
 				const name = input.readString();
 				skeletonData.animations.push(this.readAnimation(input, name, skeletonData))
