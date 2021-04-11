@@ -385,13 +385,13 @@ module spine {
 
 			// Animations.
 			let n = 1;
-			const bodys = new Array<string>(binaryHeader.bodyCount);
+			const bodys = new Array<string>();
 
 			for (let bodyCount = binaryHeader.bodyCount; n < bodyCount; ++n)
 			{
 				const name = input.readString();
 				skeletonData.animations.push(this.readAnimation(input, name, skeletonData))
-				bodys[bodyCount] = name;
+				bodys.push(name);
 			}
 			
 			return bodys;
