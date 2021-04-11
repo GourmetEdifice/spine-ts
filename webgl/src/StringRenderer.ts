@@ -49,7 +49,7 @@ module spine.webgl {
 			}
 			return _pow;
 		}
-		private measureText(textToMeasure : string) : number {
+		public measureText(textToMeasure : string) : number {
 			return this.textShader.measureText(textToMeasure).width;
 		}
 		private createMultilineText(textToWrite : string, maxWidth : number, text : string[]) : number {
@@ -173,7 +173,8 @@ module spine.webgl {
 		draw (batcher: PolygonBatcher, characters : string, font : string = 'monospace', 
 			scale : number = 1, x_pos : number = 0, y_pos : number = 0,
 			textColor : string | CanvasGradient | CanvasPattern = '#000', 
-			textHeight : number = 128, maxWidth : number = 512, res : number = 4
+			textHeight : number = 128, textAlignment : CanvasTextAlign = 'left',
+			maxWidth : number = 512, res : number = 4
 		) {
 			var draw_font : string=font;
 			if(font.toString().replace(/^[\s\uFEFF\xA0\n\r]+|[\s\uFEFF\xA0\n\r]+$/g,'')=='')draw_font='monospace';
@@ -233,7 +234,22 @@ module spine.webgl {
 
 			let verts = renderable.vertices;
 			for (let v = 0, u=0, n = renderable.numFloats; v < n; v += this.vertexSize, ++u) {
-				verts[v] = x_pos + point_list[u].x * scale;
+				let vertex_x = point_list[u].x;
+				switch(textAlignment) {
+					case "left":
+						vertex_x = point_list[u].x;
+						break;
+					case "center":
+						vertex_x = point_list[u].x - t_width/2;
+						break;
+					case "right":
+						vertex_x = point_list[u].x - t_width;
+						break;
+					default:
+						vertex_x = point_list[u].x;
+						break;
+				}
+				verts[v] = x_pos + vertex_x * scale;
 				verts[v + 1] = y_pos + point_list[u].y * scale;
 				verts[v + 2] = verts[v + 3] = verts[v + 4] = verts[v + 5] = 1;
 				verts[v + 6] = tex_list[u].x;

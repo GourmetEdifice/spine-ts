@@ -3,6 +3,7 @@ module spine {
 		public atlasList : UnityAtlasItem[];
 		public atlasMap : { [name: string]: number } = {};
 		public texture : any;
+		public file_name : string = '';
 		constructor (input: any) {
 			let atlasData : UnityAtlasData = input as UnityAtlasData;
 			this.atlasList = [];
@@ -11,10 +12,10 @@ module spine {
 				this.atlasMap[this.atlasList[i].name] = i;
 			}
 		}
-		public getMesh(name : string, width : number, height : number, 
+		public getMesh(name : string, width : number = -1, height : number = -1, 
 			start_x : number = 0, start_y : number = 0,
 			scale_x : number = 1, scale_y : number = 1,
-			flip_x : boolean = false, flip_y : boolean = false) : AtlasTextureMesh{
+			flip_x : boolean = false, flip_y : boolean = true) : AtlasTextureMesh{
 			if(this.atlasMap[name] || this.atlasMap[name]==0){
 				let result : AtlasTextureMesh = UnityAtlasItem.fromJSON(this.atlasList[this.atlasMap[name]]).
 				getMesh(
@@ -24,6 +25,10 @@ module spine {
 				);
 				result.texture = this.texture;
 				return result;
+			}else{
+				let file_message = '';
+				if(this.file_name.trim() != '')file_message += ` in '${this.file_name}'`;
+				throw new Error(`Atlas '${name}' not found${file_message}!`);
 			}
 		}
 		public static load(
@@ -36,10 +41,15 @@ module spine {
 
 			loader.loadText(json_path,
 				(path: string, atlasData: string): void => {
-					loader.loadTexture(texture_path, (imagePath: string, image: HTMLImageElement) => {
-						let result = new UnityAtlas(JSON.parse(atlasData));
-						result.texture = loader.get(texture_path);
-						if (success) success(json_path, texture_path, result);
+					loader.loadTexture(texture_path, (imagePath: string, _: HTMLImageElement) => {
+						try {
+							let result = new UnityAtlas(JSON.parse(atlasData));
+							result.texture = loader.get(texture_path);
+							result.file_name = json_path;
+							if (success) success(json_path, texture_path, result);
+						} catch (exception) {
+							if (error) error(json_path, texture_path, `Couldn't load texture ${imagePath}`);
+						}
 					}, (imagePath: string, errorMessage: string) => {
 						if (error) error(json_path, texture_path, `Couldn't load texture ${imagePath}`);
 					})
@@ -93,10 +103,13 @@ module spine {
 			_this.paddingBottom = input.paddingBottom;
 			return _this;
 		}
-		public getMesh(_width:number, _height:number, 
+		public getMesh(input_width:number = -1, input_height:number = -1, 
 			_start_x : number = 0, _start_y : number = 0,
 			_scale_x : number = 1, _scale_y : number = 1,
-			_flip_x : boolean = false, _flip_y : boolean = false){
+			_flip_x : boolean = false, _flip_y : boolean = true
+		){
+			const _width = input_width<=0 ? this.width : input_width;
+			const _height = input_height<=0 ? this.height : input_height;
 			let x_data : TexturePos[] = [
 				new TexturePos(new PointPos(0,0),new PointPos(this.x,0)),
 				new TexturePos(new PointPos(_width,0),new PointPos(this.x+this.width,0))
@@ -205,6 +218,8 @@ module spine {
 				}
 			}
 			result_data.texture = this.texture;
+			result_data.width = _width * _scale_x;
+			result_data.height = _height * _scale_y;
 			return result_data;
 		}
 	}
@@ -218,6 +233,8 @@ module spine {
 		public vertex : TexturePos[];
 		public index : number[];
 		public texture : any;
+		public width : number;
+		public height : number;
 	}
 	export class UnityAtlasData {
 		public m_GameObject : UnityFileData;
